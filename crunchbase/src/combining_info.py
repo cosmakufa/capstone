@@ -5,8 +5,12 @@ from collections import Counter
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.metrics import f1_score, precision_score, recall_score
 from sklearn.preprocessing import PolynomialFeatures
-import numpy as np
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import GridSearchCV
+from sklearn.cross_validation import train_test_split, cross_val_score
 import matplotlib.pyplot as plt
+
+
 
 def get_data_merged():
     df_round = get_funding_rounds_df()
@@ -27,16 +31,54 @@ def my_roc_curve(y_true, y_pred):
         result["recall"][i] = recall_score(y_true,y_pred2)
     return (xaxis, result)
 
-def train_model():
-    df, target = get_X_target()
-    gb = GradientBoostingClassifier(n_estimators=100)
-    model = gb.fit(df,target)
-    y_hat =np.array(list(list(zip(*model.predict_proba(df)))[1]))
-    x, result = my_roc_curve(target, y_hat)
+def best_train_model():
+    df = get_investor_and_objects()
+    df= get_all_targets(df)
+    df2 = df.drop(columns=['id', 'funding_round_code', 'funded_at'], axis=1)
+    target = df2.pop('target')
+    X_train, X_test, y_train, y_test = train_test_split(df2, target, test_size=0.25, random_state=1, stratify=target)
+    X_train.fillna(X_train.mean(), inplace=True)
+    poly = PolynomialFeatures(3, interaction_only=True)
+    poly_train = poly.fit_transform(X_train)
+    X_test.fillna(X_train.mean(), inplace=True)
+    poly_test = poly.transform(X_test)
+#     parameters = {'class_weight'= 'balanced',
+#  'max_depth'= 11,
+#  'n_estimators'= 81,
+#  'random_state'= 0}
+    model = RandomForestClassifier(class_weight='balanced', max_depth= 11, n_estimators= 81,
+ random_state= 0)
+    #clf = GridSearchCV(model, parameters, verbose=1)
+    model.fit(X_train, y_train)
+    y_hat =np.array(list(list(zip(*model.predict_proba(X_test)))[1]))
+    x, result = my_roc_curve(y_test, y_hat)
     plt.plot(x, result['f1'], label='f')
     plt.plot(x, result['precision'], label='p')
     plt.plot(x, result['recall'], label='r')
     plt.legend()
+
+def train_model():
+    df = get_investor_and_objects()
+    df= get_all_targets(df)
+    df2 = df.drop(columns=['id', 'funding_round_code', 'funded_at'], axis=1)
+    target = df2.pop('target')
+    X_train, X_test, y_train, y_test = train_test_split(df2, target, test_size=0.25, random_state=1, stratify=target)
+    X_train.fillna(X_train.mean(), inplace=True)
+    poly = PolynomialFeatures(3, interaction_only=True)
+    poly_train = poly.fit_transform(X_train)
+    X_test.fillna(X_train.mean(), inplace=True)
+    poly_test = poly.transform(X_test)
+    parameters = {"n_estimators": range(1, 500,20), "max_depth":range(1, 20,2), "random_state":[0], "class_weight":['balanced']}
+    model = RandomForestClassifier()
+    clf = GridSearchCV(model, parameters, verbose=2,n_jobs=5, scoring='f1')
+    clf.fit(X_train, y_train)
+    y_hat =np.array(list(list(zip(*clf.predict_proba(X_test)))[1]))
+    x, result = my_roc_curve(y_test, y_hat)
+    plt.plot(x, result['f1'], label='f')
+    plt.plot(x, result['precision'], label='p')
+    plt.plot(x, result['recall'], label='r')
+    plt.legend()
+    return X_train, X_test, y_train, y_test, clf
 
 def get_X_target():
     df = get_investor_and_objects()
@@ -250,7 +292,7 @@ def get_ipos_df():
 
 
 def get_milestones_df():
-    df = pd.read_csv('../data/cb_milestones.csv')
+    df = pd.read_csv('../data/cb_milestones.csv',parse_dates=['milestone_at'])
     keep = ['object_id', 'milestone_at', 'description']
     df = df[keep]
     return df
