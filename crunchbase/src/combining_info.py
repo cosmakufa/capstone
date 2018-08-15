@@ -9,7 +9,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import GridSearchCV
 from sklearn.cross_validation import train_test_split, cross_val_score
 import matplotlib.pyplot as plt
-
+import pickle
 
 
 def get_data_merged():
@@ -34,7 +34,7 @@ def my_roc_curve(y_true, y_pred):
 def best_train_model():
     df = get_investor_and_objects()
     df= get_all_targets(df)
-    df2 = df.drop(columns=['id', 'funding_round_code', 'funded_at'], axis=1)
+    df2 = df.drop(columns=['id', 'funding_round_code', 'funded_at','funding_round_id'], axis=1)
     target = df2.pop('target')
     X_train, X_test, y_train, y_test = train_test_split(df2, target, test_size=0.25, random_state=1, stratify=target)
     X_train.fillna(X_train.mean(), inplace=True)
@@ -56,28 +56,44 @@ def best_train_model():
     plt.plot(x, result['precision'], label='p')
     plt.plot(x, result['recall'], label='r')
     plt.legend()
-
+def train_model_fast():
+    df2 = pd.read_csv("features_engineer.csv")
+    target = df2.pop('target')
+    X_train, X_test, y_train, y_test = train_test_split(df2, target, test_size=0.20, random_state=1, stratify=target)
+    X_train.fillna(X_train.mean(), inplace=True)
+    #poly = PolynomialFeatures(2, interaction_only=True)
+    #poly_train = poly.fit_transform(X_train)
+    X_test.fillna(X_train.mean(), inplace=True)
+    #poly_test = poly.transform(X_test)
+    #X_train = poly_train
+    #X_test = poly_test
+    parameters = {"criterion":["gini","entropy"],"n_estimators": range(150, 500,20), "max_depth":range(10, 20,2), "random_state":[0], "class_weight":['balanced']}
+    model = RandomForestClassifier()
+    clf = GridSearchCV(model, parameters, verbose=2,n_jobs=7, scoring='f1')
+    clf.fit(X_train, y_train)
+    with open("clf.pickle", "wb") as output_file:
+        pickle.dump(clf, output_file)
+    return X_train, X_test, y_train, y_test, clf
 def train_model():
     df = get_investor_and_objects()
     df= get_all_targets(df)
-    df2 = df.drop(columns=['id', 'funding_round_code', 'funded_at'], axis=1)
+    df2 = df.drop(columns=['id', 'funding_round_code', 'funded_at','funding_round_id'], axis=1)
+    df2.to_csv("features_engineer.csv")
     target = df2.pop('target')
-    X_train, X_test, y_train, y_test = train_test_split(df2, target, test_size=0.25, random_state=1, stratify=target)
+    X_train, X_test, y_train, y_test = train_test_split(df2, target, test_size=0.20, random_state=1, stratify=target)
     X_train.fillna(X_train.mean(), inplace=True)
-    poly = PolynomialFeatures(3, interaction_only=True)
-    poly_train = poly.fit_transform(X_train)
+    #poly = PolynomialFeatures(2, interaction_only=True)
+    #poly_train = poly.fit_transform(X_train)
     X_test.fillna(X_train.mean(), inplace=True)
-    poly_test = poly.transform(X_test)
-    parameters = {"n_estimators": range(1, 500,20), "max_depth":range(1, 20,2), "random_state":[0], "class_weight":['balanced']}
+    #poly_test = poly.transform(X_test)
+    #X_train = poly_train
+    #X_test = poly_test
+    parameters = {"criterion":["gini","entropy"],"n_estimators": range(150, 500,20), "max_depth":range(10, 20,2), "random_state":[0], "class_weight":['balanced']}
     model = RandomForestClassifier()
-    clf = GridSearchCV(model, parameters, verbose=2,n_jobs=5, scoring='f1')
+    clf = GridSearchCV(model, parameters, verbose=2,n_jobs=7, scoring='f1')
     clf.fit(X_train, y_train)
-    y_hat =np.array(list(list(zip(*clf.predict_proba(X_test)))[1]))
-    x, result = my_roc_curve(y_test, y_hat)
-    plt.plot(x, result['f1'], label='f')
-    plt.plot(x, result['precision'], label='p')
-    plt.plot(x, result['recall'], label='r')
-    plt.legend()
+    with open("clf.pickle", "wb") as output_file:
+        pickle.dump(clf, output_file)
     return X_train, X_test, y_train, y_test, clf
 
 def get_X_target():
@@ -92,7 +108,12 @@ def get_X_target():
 def get_investor_and_objects():
     df = get_unique_investors()
     df_object = get_objects_df()
+    #df_object2 = pd.read_csv('../data/cb_objects.csv',parse_dates=['founded_at'])[['id', 'founded_at']]
+    #new_df = pd.merge(left=df, right=df_object2, left_on='id', right_on='id', how='left')
+    
     round_object = pd.merge(left=df, right=df_object, left_on='id', right_on='id', how='left')
+    round_object['years_since'] = round_object.apply(lambda x: (x['funded_at'] - x['founded_at']).days,axis =1)
+    round_object = round_object.drop(columns=['founded_at'])
     return round_object
 
 def unique_investors(x, investors):
@@ -256,6 +277,7 @@ def get_funding_rounds_df():
     df = pd.read_csv('../data/cb_funding_rounds.csv', parse_dates=['funded_at'])
     keep = ['funding_round_id','object_id', 'funded_at', 'funding_round_code','raised_amount_usd','participants','is_first_round']
     df = df[keep]
+    
     return df
 
 def get_funds_df():
@@ -307,7 +329,7 @@ def get_objects_df():
     new_df['years_since'] = new_df['founded_at'].apply(lambda x: (pd.Timestamp('01-01-2014') - x).days)
     index = list(new_df['category_code'].value_counts(1)[:20].index)
     #new_df[index] = pd.get_dummies(df['category_code'])[index]
-    new_df.drop(columns=['category_code','founded_at'], inplace=True)
+    new_df.drop(columns=['category_code'], inplace=True)
     return new_df
 
 def get_offices_df():
